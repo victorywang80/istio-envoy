@@ -1,0 +1,7 @@
+apiVersion: v1
+name: dynamic-forward-example
+version: 0.1
+description: Helm chart for deploying Envoy dynamic forward on Isito Ingress
+keywords:
+  - ingress
+  - virtualservice

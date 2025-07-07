@@ -1,0 +1,203 @@
+{{- range .Values.example.exampleServer.cert.serverName }}
+{{- $rangeItem := . -}}
+{{- with $ }}
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: {{ .Values.example.exampleServer.name }}-dynamic-forweard
+  namespace: {{ .Values.example.exampleServer.gatewayNamespace }}
+spec:
+  workloadSelector:
+    labels:
+      istio: {{ .Values.ingressgatewayInstanceName }}
+  configPatches:
+  - applyTo: NETWORK_FILTER
+    match:
+      context: GATEWAY
+      listener:
+        portNumber: 8443
+        filterChain:
+          sni: {{ $rangeItem }}
+          filter:
+            name: "envoy.filters.network.http_connection_manager"
+    patch:
+      operation: MERGE
+      value:
+        name: envoy.filters.network.http_connection_manager
+        typedConfig:
+          '@type': type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          route_config:
+            name: https.443.{{ .Values.example.exampleServer.name }}-https-443.{{ .Values.example.exampleServer.gatewayNamespace }}
+            virtual_hosts:
+            - domains:
+              - {{ $rangeItem }}
+              - {{ $rangeItem }}:*
+              name: {{ $rangeItem }}:443
+              routes:
+              - match:
+                  prefix: {{ .Values.example.exampleServer.urlPrefix }}
+                route:
+                  cluster: {{ .Values.example.exampleServer.name }}-dynamic-forweard-cluster
+                typed_per_filter_config:
+                  envoy.filters.http.dynamic_forward_proxy:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.dynamic_forward_proxy.v3.PerRouteConfig
+                    host_rewrite_header: "X-Host-Port"
+  - applyTo: HTTP_FILTER
+    match:
+      context: GATEWAY
+      listener:
+        portNumber: 8443
+        filterChain:
+          sni: {{ $rangeItem }}
+          filter:
+            name: envoy.filters.network.http_connection_manager
+            subFilter:
+              name: envoy.filters.http.router
+    patch:
+      operation: INSERT_BEFORE
+      value:
+       name: envoy.filters.http.lua
+       typed_config:
+         '@type': type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+         inline_code: |
+           function get_idg_key(path, q_param_key)
+               -- path = "/v1/product/server?idn=2887647233"
+               s, e = string.find(path, "?")
+               if s ~= nil then
+                 for pre, q_params in string.gmatch(path, "(%S+)?(%S+)") do
+                   s, e = string.find(q_params, "{{ .Values.example.exampleServer.urlIdgParam }}=")
+                   if s ~= nil then
+                     for k, v in string.gmatch(q_params, ".*({{ .Values.example.exampleServer.urlIdgParam }})=([0-9]+)") do
+                     -- print(k, v)
+                       if k == q_param_key then
+                         return v
+                       end
+                     end
+                   end
+                 end
+               end
+               return 0
+           end
+
+           function ipdig_to_str(ipdig)
+             local ret = ""
+             local ret = bit.band(bit.rshift(ipdig, 24), 0xFF) ..
+             "." .. bit.band(bit.rshift(ipdig, 16), 0xFF) ..
+             "." .. bit.band(bit.rshift(ipdig, 8), 0xFF) ..
+             "." .. bit.band(ipdig, 0xFF)
+             return ret
+           end
+
+           function error_direct_reponse(request_handle)
+               request_handle:respond(
+                 {[":status"] = "403"},
+                 "{'code': 403, 'error': 'access denied'}"
+               )
+           end
+
+           function envoy_on_request(request_handle)
+             path_in = request_handle:headers():get(":path")
+             ipdig = get_idg_key(path_in, {{ .Values.example.exampleServer.urlIdgParam | quote }})
+             if ipdig == 0 then
+               error_direct_reponse(request_handle)
+             elseif tonumber(ipdig) < {{ int .Values.k8s.network.pod_ipaddr_min }} or tonumber(ipdig) > {{ int .Values.k8s.network.pod_ipaddr_max }} then
+               error_direct_reponse(request_handle)
+             else
+               ipstr = ipdig_to_str(ipdig)
+               request_handle:headers():add("X-Host-Port", ipstr..":"..{{ .Values.example.exampleServer.port }})
+             end
+           end
+  - applyTo: HTTP_FILTER
+    match:
+      context: GATEWAY
+      listener:
+        portNumber: 8443
+        filterChain:
+          sni: {{ $rangeItem }}
+          filter:
+            name: "envoy.filters.network.http_connection_manager"
+            subFilter:
+              name: "envoy.filters.http.router"
+    patch:
+      operation: INSERT_BEFORE
+      value:
+        name: envoy.filters.http.dynamic_forward_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.http.dynamic_forward_proxy.v3.FilterConfig
+          dns_cache_config:
+            name: dynamic_forward_proxy_cache_config
+            dns_lookup_family: V4_ONLY
+            max_hosts: 4294967295
+            dns_cache_circuit_breaker:
+              max_pending_requests: 4294967295
+  - applyTo: NETWORK_FILTER
+    match:
+      context: GATEWAY
+      listener:
+        portNumber: 80
+        filterChain:
+          sni: {{ $rangeItem }}
+          filter:
+            name: "envoy.filters.network.http_connection_manager"
+    patch:
+      operation: MERGE
+      value:
+        name: envoy.filters.network.http_connection_manager
+        typedConfig:
+          '@type': type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          route_config:
+            name: https.80.{{ .Values.example.exampleServer.name }}-http-80.{{ .Values.example.exampleServer.gatewayNamespace }}
+            virtual_hosts:
+            - domains:
+              - {{ $rangeItem }}
+              - {{ $rangeItem }}:*
+              name: {{ $rangeItem }}:80
+              routes:
+              - match:
+                  prefix: {{ .Values.example.exampleServer.urlPrefix }}
+                route:
+                  cluster: {{ .Values.example.exampleServer.name }}-dynamic-forweard-cluster
+                typed_per_filter_config:
+                  envoy.filters.http.dynamic_forward_proxy:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.dynamic_forward_proxy.v3.PerRouteConfig
+                    host_rewrite_header: "X-Host-Port"
+{{ end }}
+{{ end }}
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: {{ .Values.example.exampleServer.name }}-dynamic-forweard-cluster
+  namespace: {{ .Values.example.exampleServer.gatewayNamespace }}
+spec:
+  workloadSelector:
+    labels:
+      istio: {{ .Values.ingressgatewayInstanceName }}
+  configPatches:
+  - applyTo: CLUSTER
+    match:
+      context: GATEWAY
+    patch:
+      operation: ADD
+      value:
+        circuit_breakers:
+          thresholds:
+          - max_connections: 4294967295
+            max_pending_requests: 4294967295
+            max_requests: 4294967295
+            max_retries: 4294967295
+        name: {{ .Values.example.exampleServer.name }}-dynamic-forweard-cluster
+        type: STRICT_DNS
+        connect_timeout: 0.5s
+        lb_policy: CLUSTER_PROVIDED
+        cluster_type:
+          name: envoy.clusters.dynamic_forward_proxy
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig
+            dns_cache_config:
+              name: dynamic_forward_proxy_cache_config
+              dns_lookup_family: V4_ONLY
+              max_hosts: 4294967295
+              dns_cache_circuit_breaker:
+                max_pending_requests: 4294967295

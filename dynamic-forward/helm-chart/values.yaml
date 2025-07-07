@@ -1,0 +1,33 @@
+ingressgatewayInstanceName: example-ingressgateway
+clusterDomain: cluster.local
+
+# EnvoyFilter 中的 lua 脚本使用
+k8s:
+  network:
+    # 服务 pod IP 地址范围（IP 地址要转换为十进制进行赋值）
+    # Pod 创建的 IP 地址应该位于 k8s.network.pod_ipaddr_min 和 k8s.network.pod_ipaddr_max 的闭区间内
+    # IP_CIDR=$(ipcalc 172.30.0.0/16 | awk '/HostMin/{print $2}');IPNUM=0;for (( i=0 ; i<4 ; ++i )); do ((IPNUM+=${IP_CIDR%%.*}*$((256**$((3-${i}))))));IP_CIDR=${IP_CIDR#*.};done;echo $IPNUM
+    pod_ipaddr_min: 2887647233
+    # 172.30.0.255(decimalism)
+    pod_ipaddr_max: 2887712766
+
+# exampleServer 动态转发, EnvoyFilter lua 所需要的配置引用
+# 这一部分是为安全考虑，只有满足如下全部条件的请求才会被转发到 example 服务
+# 1. 动态转发时访问的端口必须是 example.exampleServer.port 指定的端口
+# 2. 动态转发时访问的 url 前缀必匹配 example.exampleServer.urlPrefix
+# 3. 动态转发时访问的目的地址的范围必须(十进制): < k8s.network.pod_ipaddr_max and > k8s.network.pod_ipaddr_min
+# 目的地址来源于 url: /v1/product/server/?idn=xxx 中的 idn 参数值（它是一个十进制的 ip 地址，是需要指定访问的 example 服务 pod 地址）
+example:
+  exampleServer:
+    gatewayName: example-gateway
+    gatewayNamespace: test
+    name: example
+    port: 8089
+    urlPrefix: "/v1/product/server"
+    urlIdgParam: "idn"
+    httpsRedirect: true
+    cert:
+      serverName:
+        - "www.example.com"
+      renewBefore: 360h0m0s
+      clusterIssue: dnspod

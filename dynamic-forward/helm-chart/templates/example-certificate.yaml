@@ -1,0 +1,15 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Values.example.exampleServer.name }}-credential
+  namespace: {{ .Values.example.exampleServer.gatewayNamespace }}
+spec:
+  dnsNames:
+  {{- range .Values.example.exampleServer.cert.serverName }}
+  - {{ . }}
+  {{- end }}
+  issuerRef:
+    kind: ClusterIssuer
+    name: {{ .Values.example.exampleServer.cert.clusterIssue }}
+  renewBefore: {{ .Values.example.exampleServer.cert.renewBefore }}
+  secretName: {{ .Values.example.exampleServer.name }}-credential
