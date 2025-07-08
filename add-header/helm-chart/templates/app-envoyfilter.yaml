@@ -1,0 +1,40 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: {{ .Values.app.name }}-ef
+  namespace: {{ .Values.app.gatewayNamespace }}
+spec:
+  workloadSelector:
+    labels:
+      istio: {{ .Values.ingressgatewayInstanceName }}
+  configPatches:
+  - applyTo: HTTP_FILTER
+    match:
+      context: GATEWAY
+      listener:
+        filterChain:
+          sni: '*.api.cn-n1.lncldapi.com'
+          filter:
+            name: envoy.filters.network.http_connection_manager
+            subFilter:
+              name: envoy.filters.http.router
+    patch:
+      operation: INSERT_BEFORE
+      value:
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.http.wasm.v3.Wasm
+          config:
+            name: pro-app-{{ .Values.app.name }}-ef
+            rootId: pro-app-{{ .Values.app.name }}-vm-id
+            configuration:
+              "@type": type.googleapis.com/google.protobuf.StringValue
+              value:
+                {{ .Values.app.proAppWasm | toJson }}
+            vmConfig:
+               code:
+                 local:
+                   filename: /var/lib/wasm/proapp.wasm
+               runtime: envoy.wasm.runtime.v8
+               vmId: pro-app-{{ .Values.app.name }}-vm-id
+               allow_precompiled: true
+        name: envoy.filters.http.wasm

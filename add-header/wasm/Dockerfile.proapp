@@ -1,0 +1,12 @@
+FROM tinygo/tinygo:0.29.0 AS build-stage
+
+USER root
+WORKDIR /app
+ADD ./ /app
+RUN go env -w GOPROXY=https://goproxy.cn,direct
+RUN go mod tidy
+Run make pro-app
+
+FROM scratch AS build-release-stage
+
+COPY --from=build-stage /app/pro-app/main.wasm .

@@ -1,0 +1,29 @@
+ingressgatewayInstanceName: app-ingressgateway
+clusterDomain: cluster.local
+
+# app 服务配置
+app:
+  name: app
+  gatewayName: app-gateway
+  gatewayNamespace: test
+  httpsRedirect: false
+  # 创建 virtualservice 使用的 namespace
+  namespace: test
+
+  # WASM 专业版动态转发配置
+  proAppWasm: |-
+    {
+      # 从内部动态获取专业版字典信息的服务接口配置
+      "api_service": "outbound|9090||professional-headless.test.svc.cluster.local",
+      "api_host": "uluru-sudo-headless.test.svc.cluster.local",
+      "api_url": "/professional/list-pro-apps",
+      "pro_app_flag": "pro-app",
+      "pro_app_flag_default_value": 0,
+      "app_id_key": ["x-id"],
+      "tick_time": 600000
+    }
+  cert:
+    serverName:
+      - "api.test.com"
+    renewBefore: 360h0m0s
+    clusterIssue: dnspod

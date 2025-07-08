@@ -1,0 +1,46 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ .Values.app.name }}-vs
+  namespace: {{ .Values.app.namespace }}
+spec:
+  gateways:
+  - {{ .Values.app.gatewayNamespace }}/{{ .Values.app.gatewayName }}
+  hosts:
+  #{{- range .Values.app.cert.serverName }}
+  #- {{ . | quote }}
+  #{{- end }}
+  #{{- range .Values.app.internalDomains }}
+  #- {{ . | quote }}
+  #{{- end }}
+  - "*"
+  http:
+  - match:
+    - uri:
+        # 匹配 http-01 验证，acme 自动轮转证书时验证使用
+        prefix: /.well-known/acme-challenge
+    route:
+    - destination:
+        # 转发到后面的内部公共 http-01 验证网关
+        host: istio-ingressgateway.istio-system.svc.cluster.local
+        port:
+          number: 80
+  - match:
+    - headers:
+        # 此头由之前 wasm 插件配置增加
+        pro-app:
+          exact: "1"
+      uri:
+        # 1. use single quote to allow escape
+        # 2. this is not prefix match, so `.*` is must
+        regex: '^/1(\.[12])?/.*'
+    route:
+    - destination:
+        # 当精确匹配到 Http Header 中 pro-app，并且值为 1 时路由转发到专业集群服务
+        host: api-professional-headless
+        port:
+          number: 3893
+      headers:
+        response:
+          add:
+            x-service-name: api-professional
